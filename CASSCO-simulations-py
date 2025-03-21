@@ -875,10 +875,12 @@ def create_strategic_aspects(save_pdf=True):
     ax1.set_yticklabels([f"{alpha:.1f}" for alpha in alpha_values])
     
     # Add strategy labels
-    ax1.text(j, i, f"{strategy_matrix_R[i, j][0]},{strategy_matrix_R[i, j][1]}", 
-        ha="center", va="center", color="w",
-        fontsize=8)
-    
+    for i in range(len(alpha_values)):
+        for j in range(len(alpha_values)):
+            ax1.text(j, i, f"{strategy_matrix_O[i, j][0]},{strategy_matrix_O[i, j][1]}", 
+                ha="center", va="center", color="w",
+                fontsize=8)
+            
     plt.colorbar(im1, ax=ax1)
     
     # Panel B: Researcher strategy heatmap
@@ -893,10 +895,12 @@ def create_strategic_aspects(save_pdf=True):
     ax2.set_yticklabels([f"{alpha:.1f}" for alpha in alpha_values])
     
     # Add strategy labels
-    ax1.text(j, i, f"{strategy_matrix_O[i, j][0]},{strategy_matrix_O[i, j][1]}", 
-        ha="center", va="center", color="w",
-        fontsize=8)
-    
+    for i in range(len(alpha_values)):
+        for j in range(len(alpha_values)):
+            ax2.text(j, i, f"{strategy_matrix_R[i, j][0]},{strategy_matrix_R[i, j][1]}", 
+                ha="center", va="center", color="w",
+                fontsize=8)
+            
     plt.colorbar(im2, ax=ax2)
     
     # Panel C: Exigence dynamics for different beta (learning rate) values
