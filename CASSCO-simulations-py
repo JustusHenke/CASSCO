@@ -5,7 +5,7 @@ import os
 from matplotlib.colors import LinearSegmentedColormap
 import matplotlib.gridspec as gridspec
 import openpyxl
-from openpyxl.styles import PatternFill, Font
+from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
 from openpyxl.styles.differential import DifferentialStyle
 from openpyxl.formatting.rule import ColorScaleRule
 
@@ -13,28 +13,41 @@ from openpyxl.formatting.rule import ColorScaleRule
 if not os.path.exists('simulations'):
     os.makedirs('simulations')
 
-# Model parameters class
+# Model parameters class with scenario-specific settings
 class ModelParams:
-    def __init__(self):
-        # Actor weight parameters
-        self.M_O = 0.5  # Max impact for organization
-        self.M_R = 0.5  # Max impact for researcher
-        
-        # Utility function parameters
-        self.alpha_O = 0.5  # Weight for organization (impact vs private benefit)
-        self.alpha_R = 0.5  # Weight for researcher
-        
-        # Private benefit parameters
+    def __init__(self, scenario='gen_ai'):
+        # Common parameters for both scenarios
         self.P_altruistic = 0.3  # Private benefit for altruistic strategies
         self.P_egoistic = 0.7    # Private benefit for egoistic strategies
         
-        # Exigence parameters
-        self.X_init = 0.5        # Initial exigence
-        self.beta = 0.4          # Learning rate
-        self.theta = 0.3         # Threshold impact
+        # Set the scenario
+        self.scenario = scenario
         
-        # Scenario
-        self.scenario = 'gen_ai'  # 'gen_ai' or 'citizen_science'
+        # Apply scenario-specific parameters
+        self.set_scenario_params(scenario)
+    
+    def set_scenario_params(self, scenario):
+        """Set all parameters based on scenario"""
+        if scenario == 'gen_ai':
+            # Generative AI scenario parameters
+            self.M_O = 0.5       # Max impact for organization
+            self.M_R = 0.5       # Max impact for researcher
+            self.alpha_O = 0.5   # Weight for organization (impact vs private benefit)
+            self.alpha_R = 0.5   # Weight for researcher
+            self.X_init = 0.5    # Initial exigence
+            self.beta = 0.4      # Learning rate
+            self.theta = 0.3     # Threshold impact
+        elif scenario == 'citizen_science':
+            # Citizen Science scenario parameters
+            self.M_O = 0.4       # Max impact for organization
+            self.M_R = 0.6       # Max impact for researcher
+            self.alpha_O = 0.6   # Weight for organization (impact vs private benefit)
+            self.alpha_R = 0.7   # Weight for researcher
+            self.X_init = 0.2    # Initial exigence
+            self.beta = 0.3      # Learning rate
+            self.theta = 0.5     # Threshold impact
+        else:
+            raise ValueError(f"Unknown scenario: {scenario}")
 
 # Define the possible strategies
 def get_strategies():
@@ -109,7 +122,7 @@ def calculate_likelihood(strategy, observed_impact, normalized_impact, strategie
     return likelihood
 
 # Calculate one step of the game theoretic model
-def calculate_game_step(params, beliefs_O=None, beliefs_R=None, t=0, export_excel=False):
+def calculate_game_step(params, beliefs_O=None, beliefs_R=None, t=0, export_excel=False, prev_beliefs_O=None, prev_beliefs_R=None):
     """
     Calculates one step of the game theoretic model following the paper's formulation
     """
@@ -164,20 +177,17 @@ def calculate_game_step(params, beliefs_O=None, beliefs_R=None, t=0, export_exce
     
     # Calculate observed impact based on optimal strategies with random variation
     import random
-
-    # Apply randomization similar to the Excel formula: MIN(MAX(base_value + RAND()*0.2-0.1, 0), 1)
+    
+    # Apply randomization similar to Excel formula: MIN(MAX(base_value + RAND()*0.2-0.1, 0), 1)
     observed_impact_O = min(max(normalized_impact_O[s_O_opt] + random.random() * 0.2 - 0.1, 0), 1)
     observed_impact_R = min(max(normalized_impact_R[s_R_opt] + random.random() * 0.2 - 0.1, 0), 1)
-
-    # Adjust for maximum actor impact if needed
+    
+    # Ensure impacts don't exceed maximum possible values
     observed_impact_O = min(observed_impact_O, params.M_O)
     observed_impact_R = min(observed_impact_R, params.M_R)
-
+    
+    # Calculate total observed impact
     observed_total_impact = observed_impact_O + observed_impact_R
-
-    # Optional: Log the random variation for debugging
-    print(f"Base impact O: {normalized_impact_O[s_O_opt]:.3f}, Observed: {observed_impact_O:.3f}")
-    print(f"Base impact R: {normalized_impact_R[s_R_opt]:.3f}, Observed: {observed_impact_R:.3f}")
     
     # Update beliefs according to equation 9 (Bayesian update)
     # Calculate likelihoods for each strategy
@@ -215,9 +225,151 @@ def calculate_game_step(params, beliefs_O=None, beliefs_R=None, t=0, export_exce
         # Create a workbook and sheets
         workbook = openpyxl.Workbook()
         
+        # Model Parameters Sheet (NEW)
+        params_sheet = workbook.active
+        params_sheet.title = "Model Parameters"
+        params_sheet['A1'] = "Model Parameters and Assumptions"
+        params_sheet['A1'].font = Font(bold=True, size=14)
+        
+        # Add model parameters
+        row = 3
+        border = Border(left=Side(style='thin'), right=Side(style='thin'), top=Side(style='thin'), bottom=Side(style='thin'))
+        
+        params_sheet['A3'] = "Parameter"
+        params_sheet['B3'] = "Value"
+        params_sheet['C3'] = "Description"
+        
+        params_sheet['A3'].font = Font(bold=True)
+        params_sheet['B3'].font = Font(bold=True)
+        params_sheet['C3'].font = Font(bold=True)
+        
+        # Apply borders to headers
+        params_sheet['A3'].border = border
+        params_sheet['B3'].border = border
+        params_sheet['C3'].border = border
+        
+        # Add all parameters
+        parameter_info = [
+            ('Scenario', params.scenario, 'Generative AI or Citizen Science scenario'),
+            ('M_O', params.M_O, 'Maximum impact for organization'),
+            ('M_R', params.M_R, 'Maximum impact for researcher'),
+            ('alpha_O', params.alpha_O, 'Weight between impact and private benefit for organization'),
+            ('alpha_R', params.alpha_R, 'Weight between impact and private benefit for researcher'),
+            ('P_altruistic', params.P_altruistic, 'Private benefit for altruistic strategies'),
+            ('P_egoistic', params.P_egoistic, 'Private benefit for egoistic strategies'),
+            ('X_init', params.X_init, 'Initial exigence value'),
+            ('beta', params.beta, 'Learning rate for exigence updates'),
+            ('theta', params.theta, 'Threshold impact value')
+        ]
+        
+        for i, (param, value, desc) in enumerate(parameter_info):
+            row = i + 4
+            params_sheet[f'A{row}'] = param
+            params_sheet[f'B{row}'] = value
+            params_sheet[f'C{row}'] = desc
+            
+            # Apply borders
+            params_sheet[f'A{row}'].border = border
+            params_sheet[f'B{row}'].border = border
+            params_sheet[f'C{row}'].border = border
+        
+        # Add impact values section
+        row += 2
+        params_sheet[f'A{row}'] = "Impact Values"
+        params_sheet[f'A{row}'].font = Font(bold=True, size=12)
+        
+        # Add Organization impact values
+        row += 2
+        params_sheet[f'A{row}'] = "Organization Impact Values"
+        params_sheet[f'A{row}'].font = Font(bold=True)
+        
+        # Headers for impact values
+        row += 1
+        params_sheet[f'A{row}'] = "Strategy"
+        params_sheet[f'B{row}'] = "Impact"
+        params_sheet[f'C{row}'] = "Normalized"
+        
+        params_sheet[f'A{row}'].font = Font(bold=True)
+        params_sheet[f'B{row}'].font = Font(bold=True)
+        params_sheet[f'C{row}'].font = Font(bold=True)
+        
+        # Add each impact value
+        for i, s in enumerate(strategies):
+            row += 1
+            params_sheet[f'A{row}'] = f"{s[0]},{s[1]}"
+            params_sheet[f'B{row}'] = impact_O[s]
+            params_sheet[f'C{row}'] = normalized_impact_O[s]
+        
+        # Add Researcher impact values
+        row += 2
+        params_sheet[f'A{row}'] = "Researcher Impact Values"
+        params_sheet[f'A{row}'].font = Font(bold=True)
+        
+        # Headers for impact values
+        row += 1
+        params_sheet[f'A{row}'] = "Strategy"
+        params_sheet[f'B{row}'] = "Impact"
+        params_sheet[f'C{row}'] = "Normalized"
+        
+        params_sheet[f'A{row}'].font = Font(bold=True)
+        params_sheet[f'B{row}'].font = Font(bold=True)
+        params_sheet[f'C{row}'].font = Font(bold=True)
+        
+        # Add each impact value
+        for i, s in enumerate(strategies):
+            row += 1
+            params_sheet[f'A{row}'] = f"{s[0]},{s[1]}"
+            params_sheet[f'B{row}'] = impact_R[s]
+            params_sheet[f'C{row}'] = normalized_impact_R[s]
+            
+        # Add beliefs section
+        row += 2
+        params_sheet[f'A{row}'] = "Current Beliefs"
+        params_sheet[f'A{row}'].font = Font(bold=True, size=12)
+        
+        # If this is step 0, show "Initial Beliefs"
+        # If not, show "Updated Beliefs from Previous Step"
+        if t == 0:
+            row += 2
+            params_sheet[f'A{row}'] = "Initial Beliefs"
+            params_sheet[f'A{row}'].font = Font(bold=True)
+        else:
+            row += 2
+            params_sheet[f'A{row}'] = "Updated Beliefs from Previous Step"
+            params_sheet[f'A{row}'].font = Font(bold=True)
+            
+            # If we have previous beliefs, show them for comparison
+            if prev_beliefs_O is not None and prev_beliefs_R is not None:
+                # Organization's beliefs about Researcher
+                row += 2
+                params_sheet[f'A{row}'] = "Organization's beliefs about Researcher strategies"
+                params_sheet[f'A{row}'].font = Font(bold=True)
+                
+                row += 1
+                params_sheet[f'A{row}'] = "Strategy"
+                for i, s in enumerate(strategies):
+                    params_sheet.cell(row=row, column=i+2).value = f"{s[0]},{s[1]}"
+                
+                row += 1
+                for i, s in enumerate(strategies):
+                    params_sheet.cell(row=row, column=i+2).value = prev_beliefs_O[s]
+                
+                # Researcher's beliefs about Organization
+                row += 2
+                params_sheet[f'A{row}'] = "Researcher's beliefs about Organization strategies"
+                params_sheet[f'A{row}'].font = Font(bold=True)
+                
+                row += 1
+                params_sheet[f'A{row}'] = "Strategy"
+                for i, s in enumerate(strategies):
+                    params_sheet.cell(row=row, column=i+2).value = f"{s[0]},{s[1]}"
+                
+                row += 1
+                for i, s in enumerate(strategies):
+                    params_sheet.cell(row=row, column=i+2).value = prev_beliefs_R[s]
+        
         # Initial Beliefs Sheet
-        beliefs_sheet = workbook.active
-        beliefs_sheet.title = "Initial Beliefs"
+        beliefs_sheet = workbook.create_sheet("Initial Beliefs")
         beliefs_sheet['A1'] = "Initial Beliefs"
         beliefs_sheet['A1'].font = Font(bold=True, size=14)
         
@@ -428,8 +580,14 @@ def simulate_multi_step(params, steps=10, export_excel=False):
         # Set current exigence
         params.X_init = current_X
         
+        # Store previous beliefs for Excel output (if not initial step)
+        prev_beliefs_O = current_beliefs_O if t > 0 else None
+        prev_beliefs_R = current_beliefs_R if t > 0 else None
+        
         # Calculate current step
-        step_result = calculate_game_step(params, beliefs_O=current_beliefs_O, beliefs_R=current_beliefs_R, t=t, export_excel=export_excel)
+        step_result = calculate_game_step(params, beliefs_O=current_beliefs_O, beliefs_R=current_beliefs_R, 
+                                         t=t, export_excel=export_excel,
+                                         prev_beliefs_O=prev_beliefs_O, prev_beliefs_R=prev_beliefs_R)
         
         # Record results
         results.append({
@@ -458,15 +616,8 @@ def create_scenarios_comparison(save_pdf=True):
     Create a visualization comparing the two scenarios side by side
     """
     # Create parameters for both scenarios
-    params_ai = ModelParams()
-    params_ai.scenario = 'gen_ai'
-    params_ai.alpha_O = 0.5
-    params_ai.alpha_R = 0.5
-    
-    params_cs = ModelParams()
-    params_cs.scenario = 'citizen_science'
-    params_cs.alpha_O = 0.6
-    params_cs.alpha_R = 0.7
+    params_ai = ModelParams('gen_ai')
+    params_cs = ModelParams('citizen_science')
     
     # Calculate optimal strategies and impact for both scenarios
     result_ai = calculate_game_step(params_ai, export_excel=True)
@@ -647,17 +798,22 @@ def create_scenarios_comparison(save_pdf=True):
     return fig
 
 # Figure 2: Model development and equilibrium analysis
-def create_model_evolution_equilibrium(save_pdf=True):
+def create_model_evolution_equilibrium(scenario='gen_ai', save_pdf=True):
     """
     Create a visualization showing model evolution and equilibrium analysis
+    
+    Parameters:
+    - scenario: 'gen_ai' or 'citizen_science'
     """
     # Set up parameters
-    params = ModelParams()
-    params.scenario = 'gen_ai'  # Use generative AI scenario for this visualization
+    params = ModelParams(scenario)
     
     # Create figure
     fig = plt.figure(figsize=(15, 10))
     gs = gridspec.GridSpec(2, 3)
+    
+    # Scenario name for plot titles
+    scenario_name = "Generative AI" if scenario == 'gen_ai' else "Citizen Science"
     
     # Panel A: Time evolution of utilities and impact
     ax1 = plt.subplot(gs[0, 0:2])
@@ -671,7 +827,7 @@ def create_model_evolution_equilibrium(save_pdf=True):
     ax1.plot(df['step'], df['observed_impact'], 'go-', label='Combined Impact')
     ax1.axhline(y=params.theta, color='k', linestyle='--', alpha=0.5, label='Threshold (θ)')
     
-    ax1.set_title('A: Evolution of Utilities and Impact')
+    ax1.set_title(f'A: Evolution of Utilities and Impact - {scenario_name}')
     ax1.set_xlabel('Time Steps')
     ax1.set_ylabel('Value')
     ax1.legend()
@@ -691,7 +847,7 @@ def create_model_evolution_equilibrium(save_pdf=True):
                        xytext=(5, 0), textcoords='offset points',
                        fontsize=8)
     
-    ax2.set_title('B: Exigence Dynamics with Strategies')
+    ax2.set_title(f'B: Exigence Dynamics with Strategies - {scenario_name}')
     ax2.set_xlabel('Time Steps')
     ax2.set_ylabel('Exigence')
     ax2.legend()
@@ -708,8 +864,7 @@ def create_model_evolution_equilibrium(save_pdf=True):
     strategy_changes_R = []
     
     for theta in theta_values:
-        params_eq = ModelParams()
-        params_eq.scenario = 'gen_ai'
+        params_eq = ModelParams(scenario)
         params_eq.theta = theta
         
         # Run a simulation to reach equilibrium
@@ -767,7 +922,7 @@ def create_model_evolution_equilibrium(save_pdf=True):
                    ha='center', va='center', fontsize=8,
                    bbox=dict(boxstyle="round,pad=0.3", fc="lightcoral", alpha=0.3))
     
-    ax3.set_title('C: Equilibrium Points for Different Threshold Values')
+    ax3.set_title(f'C: Equilibrium Points for Different Threshold Values - {scenario_name}')
     ax3.set_xlabel('Threshold Impact (θ)')
     ax3.set_ylabel('Equilibrium Value')
     ax3.set_ylim(0, 1)
@@ -786,8 +941,7 @@ def create_model_evolution_equilibrium(save_pdf=True):
     
     # Simulate exigence dynamics for each parameter set
     for param_set in param_sets:
-        params_dyn = ModelParams()
-        params_dyn.scenario = 'gen_ai'
+        params_dyn = ModelParams(scenario)
         params_dyn.beta = param_set['beta']
         params_dyn.theta = param_set['theta']
         
@@ -800,7 +954,7 @@ def create_model_evolution_equilibrium(save_pdf=True):
         ax4.axhline(y=param_set['theta'], color=param_set['color'], 
                   linestyle=':', alpha=0.5)
     
-    ax4.set_title('D: Exigence Dynamics for Different Parameters')
+    ax4.set_title(f'D: Exigence Dynamics for Different Parameters - {scenario_name}')
     ax4.set_xlabel('Time Steps')
     ax4.set_ylabel('Exigence')
     ax4.set_ylim(0, 1)
@@ -811,23 +965,29 @@ def create_model_evolution_equilibrium(save_pdf=True):
     
     # Save as PDF
     if save_pdf:
-        plt.savefig('simulations/figure2_model_evolution_equilibrium.pdf', format='pdf', bbox_inches='tight')
-        print("Saved model evolution and equilibrium analysis as 'simulations/figure2_model_evolution_equilibrium.pdf'")
+        scenario_abbr = 'AI' if scenario == 'gen_ai' else 'CS'
+        plt.savefig(f'simulations/figure2_{scenario_abbr}_model_evolution_equilibrium.pdf', format='pdf', bbox_inches='tight')
+        print(f"Saved {scenario_name} model evolution and equilibrium analysis as 'simulations/figure2_{scenario_abbr}_model_evolution_equilibrium.pdf'")
     
     return fig
 
 # Figure 3: Strategic aspects of the model
-def create_strategic_aspects(save_pdf=True):
+def create_strategic_aspects(scenario='gen_ai', save_pdf=True):
     """
     Create a visualization showing strategic aspects of the model
+    
+    Parameters:
+    - scenario: 'gen_ai' or 'citizen_science'
     """
     # Set up parameters
-    params = ModelParams()
-    params.scenario = 'gen_ai'  # Use generative AI scenario for this visualization
+    params = ModelParams(scenario)
     
     # Create figure
     fig = plt.figure(figsize=(15, 10))
     gs = gridspec.GridSpec(2, 2)
+    
+    # Scenario name for plot titles
+    scenario_name = "Generative AI" if scenario == 'gen_ai' else "Citizen Science"
     
     # Panel A+B: Alpha-strategy relationship
     # Create parameter grid
@@ -842,8 +1002,7 @@ def create_strategic_aspects(save_pdf=True):
     # Calculate optimal strategies for each alpha combination
     for i, alpha_O in enumerate(alpha_values):
         for j, alpha_R in enumerate(alpha_values):
-            params_alpha = ModelParams()
-            params_alpha.scenario = 'gen_ai'
+            params_alpha = ModelParams(scenario)
             params_alpha.alpha_O = alpha_O
             params_alpha.alpha_R = alpha_R
             
@@ -866,7 +1025,7 @@ def create_strategic_aspects(save_pdf=True):
     # Panel A: Organization strategy heatmap
     ax1 = plt.subplot(gs[0, 0])
     im1 = ax1.imshow(numeric_matrix_O, cmap='viridis', origin='lower')
-    ax1.set_title('A: Organization Optimal Strategy')
+    ax1.set_title(f'A: Organization Optimal Strategy - {scenario_name}')
     ax1.set_xlabel('Researcher alpha (α_R)')
     ax1.set_ylabel('Organization alpha (α_O)')
     ax1.set_xticks(np.arange(len(alpha_values)))
@@ -874,19 +1033,19 @@ def create_strategic_aspects(save_pdf=True):
     ax1.set_xticklabels([f"{alpha:.1f}" for alpha in alpha_values])
     ax1.set_yticklabels([f"{alpha:.1f}" for alpha in alpha_values])
     
-    # Add strategy labels
+    # Add strategy labels with white text
     for i in range(len(alpha_values)):
         for j in range(len(alpha_values)):
             ax1.text(j, i, f"{strategy_matrix_O[i, j][0]},{strategy_matrix_O[i, j][1]}", 
-                ha="center", va="center", color="w",
-                fontsize=8)
-            
+                    ha="center", va="center", color="w",
+                    fontsize=8)
+    
     plt.colorbar(im1, ax=ax1)
     
     # Panel B: Researcher strategy heatmap
     ax2 = plt.subplot(gs[0, 1])
     im2 = ax2.imshow(numeric_matrix_R, cmap='viridis', origin='lower')
-    ax2.set_title('B: Researcher Optimal Strategy')
+    ax2.set_title(f'B: Researcher Optimal Strategy - {scenario_name}')
     ax2.set_xlabel('Researcher alpha (α_R)')
     ax2.set_ylabel('Organization alpha (α_O)')
     ax2.set_xticks(np.arange(len(alpha_values)))
@@ -894,13 +1053,13 @@ def create_strategic_aspects(save_pdf=True):
     ax2.set_xticklabels([f"{alpha:.1f}" for alpha in alpha_values])
     ax2.set_yticklabels([f"{alpha:.1f}" for alpha in alpha_values])
     
-    # Add strategy labels
+    # Add strategy labels with white text
     for i in range(len(alpha_values)):
         for j in range(len(alpha_values)):
             ax2.text(j, i, f"{strategy_matrix_R[i, j][0]},{strategy_matrix_R[i, j][1]}", 
-                ha="center", va="center", color="w",
-                fontsize=8)
-            
+                    ha="center", va="center", color="w",
+                    fontsize=8)
+    
     plt.colorbar(im2, ax=ax2)
     
     # Panel C: Exigence dynamics for different beta (learning rate) values
@@ -910,8 +1069,7 @@ def create_strategic_aspects(save_pdf=True):
     colors = ['b', 'g', 'r', 'c', 'm']
     
     for beta, color in zip(beta_values, colors):
-        params_beta = ModelParams()
-        params_beta.scenario = 'gen_ai'
+        params_beta = ModelParams(scenario)
         params_beta.beta = beta
         
         df_beta = simulate_multi_step(params_beta, steps=20)
@@ -919,7 +1077,7 @@ def create_strategic_aspects(save_pdf=True):
         ax3.plot(df_beta['step'], df_beta['X_t'], f"{color}o-", 
                 label=f"β = {beta}")
     
-    ax3.set_title('C: Exigence Dynamics for Different Learning Rates')
+    ax3.set_title(f'C: Exigence Dynamics for Different Learning Rates - {scenario_name}')
     ax3.set_xlabel('Time Steps')
     ax3.set_ylabel('Exigence')
     ax3.set_ylim(0, 1)
@@ -936,8 +1094,7 @@ def create_strategic_aspects(save_pdf=True):
     strategies_R = []
     
     for alpha in alpha_range:
-        params_impact = ModelParams()
-        params_impact.scenario = 'gen_ai'
+        params_impact = ModelParams(scenario)
         params_impact.alpha_O = alpha
         params_impact.alpha_R = alpha
         
@@ -963,7 +1120,7 @@ def create_strategic_aspects(save_pdf=True):
                    ha='center', fontsize=8,
                    bbox=dict(boxstyle="round,pad=0.2", fc="white", alpha=0.7))
     
-    ax4.set_title('D: Impact and Strategies for Different Alpha Values')
+    ax4.set_title(f'D: Impact and Strategies for Different Alpha Values - {scenario_name}')
     ax4.set_xlabel('Alpha (same for both actors)')
     ax4.set_ylabel('Combined Impact')
     ax4.set_ylim(0, 1)
@@ -974,8 +1131,9 @@ def create_strategic_aspects(save_pdf=True):
     
     # Save as PDF
     if save_pdf:
-        plt.savefig('simulations/figure3_strategic_aspects.pdf', format='pdf', bbox_inches='tight')
-        print("Saved strategic aspects as 'simulations/figure3_strategic_aspects.pdf'")
+        scenario_abbr = 'AI' if scenario == 'gen_ai' else 'CS'
+        plt.savefig(f'simulations/figure3_{scenario_abbr}_strategic_aspects.pdf', format='pdf', bbox_inches='tight')
+        print(f"Saved {scenario_name} strategic aspects as 'simulations/figure3_{scenario_abbr}_strategic_aspects.pdf'")
     
     return fig
 
@@ -989,18 +1147,26 @@ def create_all_visualizations(save_pdf=True):
     # Create Figure 1: Comparison of the two scenarios
     fig1 = create_scenarios_comparison(save_pdf=save_pdf)
     
-    # Create Figure 2: Model development and equilibrium analysis
-    fig2 = create_model_evolution_equilibrium(save_pdf=save_pdf)
+    # Create Figure 2a: Model development and equilibrium analysis - Generative AI
+    fig2a = create_model_evolution_equilibrium(scenario='gen_ai', save_pdf=save_pdf)
     
-    # Create Figure 3: Strategic aspects
-    fig3 = create_strategic_aspects(save_pdf=save_pdf)
+    # Create Figure 2b: Model development and equilibrium analysis - Citizen Science
+    fig2b = create_model_evolution_equilibrium(scenario='citizen_science', save_pdf=save_pdf)
+    
+    # Create Figure 3a: Strategic aspects - Generative AI
+    fig3a = create_strategic_aspects(scenario='gen_ai', save_pdf=save_pdf)
+    
+    # Create Figure 3b: Strategic aspects - Citizen Science
+    fig3b = create_strategic_aspects(scenario='citizen_science', save_pdf=save_pdf)
     
     print("All visualizations complete. PDF files saved in the 'simulations/' directory")
     
     return {
         'fig1': fig1,
-        'fig2': fig2,
-        'fig3': fig3
+        'fig2a': fig2a,
+        'fig2b': fig2b,
+        'fig3a': fig3a,
+        'fig3b': fig3b
     }
 
 # Run directly to create all visualizations
