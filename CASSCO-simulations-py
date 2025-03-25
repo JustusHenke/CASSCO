@@ -213,6 +213,36 @@ def calculate_game_step(params, beliefs_O=None, beliefs_R=None, t=0, export_exce
     updated_beliefs_O = {s: v/normalization_factor_O for s, v in unnormalized_posterior_O.items()}
     updated_beliefs_R = {s: v/normalization_factor_R for s, v in unnormalized_posterior_R.items()}
     
+    
+    # Recalculate expected impacts with updated beliefs
+    recalculated_impacts_O = {}
+    recalculated_impacts_R = {}
+    
+    for s_O in strategies:
+        # Expected impact of O's strategy with updated beliefs
+        own_impact = normalized_impact_O[s_O]
+        other_expected_impact = sum(updated_beliefs_O[s_R] * normalized_impact_R[s_R] for s_R in strategies)
+        recalculated_impacts_O[s_O] = own_impact + other_expected_impact
+    
+    for s_R in strategies:
+        # Expected impact of R's strategy with updated beliefs
+        own_impact = normalized_impact_R[s_R]
+        other_expected_impact = sum(updated_beliefs_R[s_O] * normalized_impact_O[s_O] for s_O in strategies)
+        recalculated_impacts_R[s_R] = own_impact + other_expected_impact
+    
+    # Recalculate expected utilities with updated beliefs
+    recalculated_utilities_O = {}
+    recalculated_utilities_R = {}
+    
+    for s_O in strategies:
+        private_benefit = params.P_egoistic if s_O[0] == 'e' else params.P_altruistic
+        recalculated_utilities_O[s_O] = params.alpha_O * recalculated_impacts_O[s_O] + (1 - params.alpha_O) * private_benefit
+    
+    for s_R in strategies:
+        private_benefit = params.P_egoistic if s_R[0] == 'e' else params.P_altruistic
+        recalculated_utilities_R[s_R] = params.alpha_R * recalculated_impacts_R[s_R] + (1 - params.alpha_R) * private_benefit
+    
+    
     # Update exigence according to equation 10
     X_next = params.X_init + params.beta * (params.theta - observed_total_impact) * params.X_init * (1 - params.X_init)
     exigence_change = X_next - params.X_init
@@ -549,6 +579,8 @@ def calculate_game_step(params, beliefs_O=None, beliefs_R=None, t=0, export_exce
         'observed_total_impact': observed_total_impact,
         'expected_utilities_O': expected_utilities_O,
         'expected_utilities_R': expected_utilities_R,
+        'recalculated_utilities_O': recalculated_utilities_O,  # Add the recalculated utilities
+        'recalculated_utilities_R': recalculated_utilities_R,  # Add the recalculated utilities
         'normalized_impact_O': normalized_impact_O,
         'normalized_impact_R': normalized_impact_R,
         'beliefs_O': beliefs_O,
@@ -628,8 +660,8 @@ def create_scenarios_comparison(save_pdf=True):
     impact_O_cs, impact_R_cs = get_impact_values('citizen_science')
     
     # Create figure
-    fig = plt.figure(figsize=(15, 8))
-    gs = gridspec.GridSpec(2, 4, width_ratios=[1, 1, 1, 1])
+    fig = plt.figure(figsize=(15, 8), constrained_layout=True)
+    gs = gridspec.GridSpec(2, 4, width_ratios=[1, 1, 1, 1], figure=fig)
     
     # Define a custom colormap that goes from light to dark blue
     cmap = LinearSegmentedColormap.from_list('blue_gradient', ['#FFFFFF', '#0343DF'])
@@ -779,7 +811,7 @@ def create_scenarios_comparison(save_pdf=True):
     ax7.legend()
     ax7.grid(True, linestyle='--', alpha=0.7)
     
-    plt.tight_layout()
+    #plt.tight_layout()
     
     # Add scenario summaries
     # AI summary
@@ -798,9 +830,249 @@ def create_scenarios_comparison(save_pdf=True):
     return fig
 
 # Figure 2: Model development and equilibrium analysis
-def create_model_evolution_equilibrium(scenario='gen_ai', save_pdf=True):
+# New function to create parameter comparison between both scenarios
+def create_parameter_comparison(save_pdf=True):
     """
-    Create a visualization showing model evolution and equilibrium analysis
+    Create a visualization comparing parameter adjustments between both scenarios
+    """
+    # Create figure with constrained layout
+    fig = plt.figure(figsize=(15, 10), constrained_layout=True)
+    gs = gridspec.GridSpec(2, 2, figure=fig)
+    
+    # Create parameter grid
+    alpha_values = np.linspace(0.1, 0.9, 9)
+    strategies = get_strategies()
+    
+    # Panel A: Organization Strategy (AI Scenario)
+    params_ai = ModelParams('gen_ai')
+    strategy_matrix_O_ai = np.empty((len(alpha_values), len(alpha_values)), dtype=object)
+    numeric_matrix_O_ai = np.zeros((len(alpha_values), len(alpha_values)))
+    
+    # Calculate optimal strategies for each alpha combination (AI)
+    for i, alpha_O in enumerate(alpha_values):
+        for j, alpha_R in enumerate(alpha_values):
+            params_ai.alpha_O = alpha_O
+            params_ai.alpha_R = alpha_R
+            
+            result = calculate_game_step(params_ai)
+            strategy_matrix_O_ai[i, j] = result['strategy_O']
+    
+    # Convert strategies to numeric codes for visualization
+    strategy_to_num = {s: i for i, s in enumerate(strategies)}
+    for i in range(len(alpha_values)):
+        for j in range(len(alpha_values)):
+            numeric_matrix_O_ai[i, j] = strategy_to_num[strategy_matrix_O_ai[i, j]]
+    
+    # Panel B: Organization Strategy (CS Scenario)
+    params_cs = ModelParams('citizen_science')
+    strategy_matrix_O_cs = np.empty((len(alpha_values), len(alpha_values)), dtype=object)
+    numeric_matrix_O_cs = np.zeros((len(alpha_values), len(alpha_values)))
+    
+    # Calculate optimal strategies for each alpha combination (CS)
+    for i, alpha_O in enumerate(alpha_values):
+        for j, alpha_R in enumerate(alpha_values):
+            params_cs.alpha_O = alpha_O
+            params_cs.alpha_R = alpha_R
+            
+            result = calculate_game_step(params_cs)
+            strategy_matrix_O_cs[i, j] = result['strategy_O']
+    
+    # Convert strategies to numeric codes for visualization
+    for i in range(len(alpha_values)):
+        for j in range(len(alpha_values)):
+            numeric_matrix_O_cs[i, j] = strategy_to_num[strategy_matrix_O_cs[i, j]]
+    
+    # Panel C: Researcher Strategy (AI Scenario)
+    params_ai = ModelParams('gen_ai')
+    strategy_matrix_R_ai = np.empty((len(alpha_values), len(alpha_values)), dtype=object)
+    numeric_matrix_R_ai = np.zeros((len(alpha_values), len(alpha_values)))
+    
+    # Calculate optimal strategies for each alpha combination (AI)
+    for i, alpha_O in enumerate(alpha_values):
+        for j, alpha_R in enumerate(alpha_values):
+            params_ai.alpha_O = alpha_O
+            params_ai.alpha_R = alpha_R
+            
+            result = calculate_game_step(params_ai)
+            strategy_matrix_R_ai[i, j] = result['strategy_R']
+    
+    # Convert strategies to numeric codes for visualization
+    for i in range(len(alpha_values)):
+        for j in range(len(alpha_values)):
+            numeric_matrix_R_ai[i, j] = strategy_to_num[strategy_matrix_R_ai[i, j]]
+    
+    # Panel D: Researcher Strategy (CS Scenario)
+    params_cs = ModelParams('citizen_science')
+    strategy_matrix_R_cs = np.empty((len(alpha_values), len(alpha_values)), dtype=object)
+    numeric_matrix_R_cs = np.zeros((len(alpha_values), len(alpha_values)))
+    
+    # Calculate optimal strategies for each alpha combination (CS)
+    for i, alpha_O in enumerate(alpha_values):
+        for j, alpha_R in enumerate(alpha_values):
+            params_cs.alpha_O = alpha_O
+            params_cs.alpha_R = alpha_R
+            
+            result = calculate_game_step(params_cs)
+            strategy_matrix_R_cs[i, j] = result['strategy_R']
+    
+    # Convert strategies to numeric codes for visualization
+    for i in range(len(alpha_values)):
+        for j in range(len(alpha_values)):
+            numeric_matrix_R_cs[i, j] = strategy_to_num[strategy_matrix_R_cs[i, j]]
+    
+    # Plot the four heatmaps
+    ax1 = plt.subplot(gs[0, 0])
+    im1 = ax1.imshow(numeric_matrix_O_ai, cmap='viridis', origin='lower')
+    ax1.set_title('A: Organization Strategy - Generative AI')
+    ax1.set_xlabel('Researcher alpha (α_R)')
+    ax1.set_ylabel('Organization alpha (α_O)')
+    ax1.set_xticks(np.arange(len(alpha_values)))
+    ax1.set_yticks(np.arange(len(alpha_values)))
+    ax1.set_xticklabels([f"{alpha:.1f}" for alpha in alpha_values])
+    ax1.set_yticklabels([f"{alpha:.1f}" for alpha in alpha_values])
+    
+    # Add strategy labels
+    for i in range(len(alpha_values)):
+        for j in range(len(alpha_values)):
+            ax1.text(j, i, f"{strategy_matrix_O_ai[i, j][0]},{strategy_matrix_O_ai[i, j][1]}", 
+                    ha="center", va="center", color="w", fontsize=8)
+    
+    ax2 = plt.subplot(gs[0, 1])
+    im2 = ax2.imshow(numeric_matrix_O_cs, cmap='viridis', origin='lower')
+    ax2.set_title('B: Organization Strategy - Citizen Science')
+    ax2.set_xlabel('Researcher alpha (α_R)')
+    ax2.set_ylabel('Organization alpha (α_O)')
+    ax2.set_xticks(np.arange(len(alpha_values)))
+    ax2.set_yticks(np.arange(len(alpha_values)))
+    ax2.set_xticklabels([f"{alpha:.1f}" for alpha in alpha_values])
+    ax2.set_yticklabels([f"{alpha:.1f}" for alpha in alpha_values])
+    
+    # Add strategy labels
+    for i in range(len(alpha_values)):
+        for j in range(len(alpha_values)):
+            ax2.text(j, i, f"{strategy_matrix_O_cs[i, j][0]},{strategy_matrix_O_cs[i, j][1]}", 
+                    ha="center", va="center", color="w", fontsize=8)
+    
+    ax3 = plt.subplot(gs[1, 0])
+    im3 = ax3.imshow(numeric_matrix_R_ai, cmap='viridis', origin='lower')
+    ax3.set_title('C: Researcher Strategy - Generative AI')
+    ax3.set_xlabel('Researcher alpha (α_R)')
+    ax3.set_ylabel('Organization alpha (α_O)')
+    ax3.set_xticks(np.arange(len(alpha_values)))
+    ax3.set_yticks(np.arange(len(alpha_values)))
+    ax3.set_xticklabels([f"{alpha:.1f}" for alpha in alpha_values])
+    ax3.set_yticklabels([f"{alpha:.1f}" for alpha in alpha_values])
+    
+    # Add strategy labels
+    for i in range(len(alpha_values)):
+        for j in range(len(alpha_values)):
+            ax3.text(j, i, f"{strategy_matrix_R_ai[i, j][0]},{strategy_matrix_R_ai[i, j][1]}", 
+                    ha="center", va="center", color="w", fontsize=8)
+    
+    ax4 = plt.subplot(gs[1, 1])
+    im4 = ax4.imshow(numeric_matrix_R_cs, cmap='viridis', origin='lower')
+    ax4.set_title('D: Researcher Strategy - Citizen Science')
+    ax4.set_xlabel('Researcher alpha (α_R)')
+    ax4.set_ylabel('Organization alpha (α_O)')
+    ax4.set_xticks(np.arange(len(alpha_values)))
+    ax4.set_yticks(np.arange(len(alpha_values)))
+    ax4.set_xticklabels([f"{alpha:.1f}" for alpha in alpha_values])
+    ax4.set_yticklabels([f"{alpha:.1f}" for alpha in alpha_values])
+    
+    # Add strategy labels
+    for i in range(len(alpha_values)):
+        for j in range(len(alpha_values)):
+            ax4.text(j, i, f"{strategy_matrix_R_cs[i, j][0]},{strategy_matrix_R_cs[i, j][1]}", 
+                    ha="center", va="center", color="w", fontsize=8)
+    
+    # Add colorbar
+    cbar_ax = fig.add_axes([0.92, 0.15, 0.02, 0.7])
+    fig.colorbar(im1, cax=cbar_ax, label='Strategy Index')
+    
+    # Save as PDF
+    if save_pdf:
+        plt.savefig('simulations/figure2_parameter_comparison.pdf', format='pdf')
+        print("Saved parameter comparison as 'simulations/figure2_parameter_comparison.pdf'")
+    
+    return fig
+
+# New function to create exigence dynamics comparison
+def create_exigence_dynamics_comparison(save_pdf=True):
+    """
+    Create visualization comparing exigence dynamics for different parameters between both scenarios
+    """
+    # Create figure with constrained layout
+    fig = plt.figure(figsize=(15, 6), constrained_layout=True)
+    gs = gridspec.GridSpec(1, 2, figure=fig)
+    
+    # Panel A: Exigence dynamics for Generative AI
+    ax1 = plt.subplot(gs[0, 0])
+    
+    # Define different parameter sets
+    param_sets = [
+        {'beta': 0.2, 'theta': 0.3, 'label': 'Low β, Low θ', 'color': 'b'},
+        {'beta': 0.5, 'theta': 0.5, 'label': 'Medium β, Medium θ', 'color': 'g'},
+        {'beta': 0.8, 'theta': 0.7, 'label': 'High β, High θ', 'color': 'r'}
+    ]
+    
+    # Simulate for Generative AI
+    for param_set in param_sets:
+        params_ai = ModelParams('gen_ai')
+        params_ai.beta = param_set['beta']
+        params_ai.theta = param_set['theta']
+        
+        df_ai = simulate_multi_step(params_ai, steps=20)
+        
+        ax1.plot(df_ai['step'], df_ai['X_t'], f"{param_set['color']}o-", 
+                label=param_set['label'])
+        
+        # Add threshold lines
+        ax1.axhline(y=param_set['theta'], color=param_set['color'], 
+                  linestyle=':', alpha=0.5)
+    
+    ax1.set_title('A: Exigence Dynamics - Generative AI')
+    ax1.set_xlabel('Time Steps')
+    ax1.set_ylabel('Exigence')
+    ax1.set_ylim(0, 1)
+    ax1.legend()
+    ax1.grid(True, linestyle='--', alpha=0.7)
+    
+    # Panel B: Exigence dynamics for Citizen Science
+    ax2 = plt.subplot(gs[0, 1])
+    
+    # Simulate for Citizen Science
+    for param_set in param_sets:
+        params_cs = ModelParams('citizen_science')
+        params_cs.beta = param_set['beta']
+        params_cs.theta = param_set['theta']
+        
+        df_cs = simulate_multi_step(params_cs, steps=20)
+        
+        ax2.plot(df_cs['step'], df_cs['X_t'], f"{param_set['color']}o-", 
+                label=param_set['label'])
+        
+        # Add threshold lines
+        ax2.axhline(y=param_set['theta'], color=param_set['color'], 
+                  linestyle=':', alpha=0.5)
+    
+    ax2.set_title('B: Exigence Dynamics - Citizen Science')
+    ax2.set_xlabel('Time Steps')
+    ax2.set_ylabel('Exigence')
+    ax2.set_ylim(0, 1)
+    ax2.legend()
+    ax2.grid(True, linestyle='--', alpha=0.7)
+    
+    # Save as PDF
+    if save_pdf:
+        plt.savefig('simulations/figure3_exigence_dynamics_comparison.pdf', format='pdf')
+        print("Saved exigence dynamics comparison as 'simulations/figure3_exigence_dynamics_comparison.pdf'")
+    
+    return fig
+
+# Function to create detailed scenario analysis
+def create_detailed_scenario_analysis(scenario='gen_ai', save_pdf=True):
+    """
+    Create a detailed analysis visualization for a specific scenario
     
     Parameters:
     - scenario: 'gen_ai' or 'citizen_science'
@@ -808,15 +1080,16 @@ def create_model_evolution_equilibrium(scenario='gen_ai', save_pdf=True):
     # Set up parameters
     params = ModelParams(scenario)
     
-    # Create figure
-    fig = plt.figure(figsize=(15, 10))
-    gs = gridspec.GridSpec(2, 3)
-    
     # Scenario name for plot titles
     scenario_name = "Generative AI" if scenario == 'gen_ai' else "Citizen Science"
+    scenario_abbr = 'AI' if scenario == 'gen_ai' else 'CS'
+    
+    # Create figure with constrained layout
+    fig = plt.figure(figsize=(15, 10), constrained_layout=True)
+    gs = gridspec.GridSpec(2, 2, figure=fig)
     
     # Panel A: Time evolution of utilities and impact
-    ax1 = plt.subplot(gs[0, 0:2])
+    ax1 = plt.subplot(gs[0, 0])
     
     # Simulate 15 steps
     df = simulate_multi_step(params, steps=15)
@@ -833,28 +1106,29 @@ def create_model_evolution_equilibrium(scenario='gen_ai', save_pdf=True):
     ax1.legend()
     ax1.grid(True, linestyle='--', alpha=0.7)
     
-    # Panel B: Exigence dynamics with strategy switches
-    ax2 = plt.subplot(gs[0, 2])
+    # Panel B: Strategy choices over time
+    ax2 = plt.subplot(gs[0, 1])
     
-    # Plot exigence evolution
-    ax2.plot(df['step'], df['X_t'], 'ko-', label='Exigence')
+    # Create a mapping of strategies to integers
+    strategies = get_strategies()
+    strat_to_num = {s: i for i, s in enumerate(strategies)}
     
-    # Annotate strategies at each step
-    for i, row in df.iterrows():
-        if i % 2 == 0:  # Annotate every other point to avoid clutter
-            ax2.annotate(f"O:{row['strategy_O']}, R:{row['strategy_R']}", 
-                       xy=(row['step'], row['X_t']),
-                       xytext=(5, 0), textcoords='offset points',
-                       fontsize=8)
+    # Plot strategy choices
+    ax2.plot(df['step'], [strat_to_num[s] for s in df['strategy_O']], 'bs-', label='Org Strategy')
+    ax2.plot(df['step'], [strat_to_num[s] for s in df['strategy_R']], 'rs-', label='Res Strategy')
     
-    ax2.set_title(f'B: Exigence Dynamics with Strategies - {scenario_name}')
+    # Set y-ticks to strategy labels
+    ax2.set_yticks(range(len(strategies)))
+    ax2.set_yticklabels([f"{s[0]},{s[1]}" for s in strategies])
+    
+    ax2.set_title(f'B: Strategy Evolution - {scenario_name}')
     ax2.set_xlabel('Time Steps')
-    ax2.set_ylabel('Exigence')
+    ax2.set_ylabel('Strategy')
     ax2.legend()
     ax2.grid(True, linestyle='--', alpha=0.7)
     
     # Panel C: Equilibrium analysis for different theta values
-    ax3 = plt.subplot(gs[1, 0:2])
+    ax3 = plt.subplot(gs[1, 0])
     
     # Analyze equilibrium for different theta values
     theta_values = np.linspace(0.1, 0.9, 9)
@@ -929,161 +1203,6 @@ def create_model_evolution_equilibrium(scenario='gen_ai', save_pdf=True):
     ax3.legend()
     ax3.grid(True, linestyle='--', alpha=0.7)
     
-    # Panel D: Exigence dynamics for selected parameter sets
-    ax4 = plt.subplot(gs[1, 2])
-    
-    # Create three different parameter sets
-    param_sets = [
-        {'beta': 0.2, 'theta': 0.3, 'label': 'Low β, Low θ', 'color': 'b'},
-        {'beta': 0.5, 'theta': 0.5, 'label': 'Medium β, Medium θ', 'color': 'g'},
-        {'beta': 0.8, 'theta': 0.7, 'label': 'High β, High θ', 'color': 'r'}
-    ]
-    
-    # Simulate exigence dynamics for each parameter set
-    for param_set in param_sets:
-        params_dyn = ModelParams(scenario)
-        params_dyn.beta = param_set['beta']
-        params_dyn.theta = param_set['theta']
-        
-        df_dyn = simulate_multi_step(params_dyn, steps=20)
-        
-        ax4.plot(df_dyn['step'], df_dyn['X_t'], f"{param_set['color']}o-", 
-                label=param_set['label'])
-        
-        # Add a horizontal line for the threshold
-        ax4.axhline(y=param_set['theta'], color=param_set['color'], 
-                  linestyle=':', alpha=0.5)
-    
-    ax4.set_title(f'D: Exigence Dynamics for Different Parameters - {scenario_name}')
-    ax4.set_xlabel('Time Steps')
-    ax4.set_ylabel('Exigence')
-    ax4.set_ylim(0, 1)
-    ax4.legend()
-    ax4.grid(True, linestyle='--', alpha=0.7)
-    
-    plt.tight_layout()
-    
-    # Save as PDF
-    if save_pdf:
-        scenario_abbr = 'AI' if scenario == 'gen_ai' else 'CS'
-        plt.savefig(f'simulations/figure2_{scenario_abbr}_model_evolution_equilibrium.pdf', format='pdf', bbox_inches='tight')
-        print(f"Saved {scenario_name} model evolution and equilibrium analysis as 'simulations/figure2_{scenario_abbr}_model_evolution_equilibrium.pdf'")
-    
-    return fig
-
-# Figure 3: Strategic aspects of the model
-def create_strategic_aspects(scenario='gen_ai', save_pdf=True):
-    """
-    Create a visualization showing strategic aspects of the model
-    
-    Parameters:
-    - scenario: 'gen_ai' or 'citizen_science'
-    """
-    # Set up parameters
-    params = ModelParams(scenario)
-    
-    # Create figure
-    fig = plt.figure(figsize=(15, 10))
-    gs = gridspec.GridSpec(2, 2)
-    
-    # Scenario name for plot titles
-    scenario_name = "Generative AI" if scenario == 'gen_ai' else "Citizen Science"
-    
-    # Panel A+B: Alpha-strategy relationship
-    # Create parameter grid
-    alpha_values = np.linspace(0.1, 0.9, 9)
-    strategies = get_strategies()
-    
-    # Create matrices to store optimal strategies
-    strategy_matrix_O = np.empty((len(alpha_values), len(alpha_values)), dtype=object)
-    strategy_matrix_R = np.empty((len(alpha_values), len(alpha_values)), dtype=object)
-    impact_matrix = np.zeros((len(alpha_values), len(alpha_values)))
-    
-    # Calculate optimal strategies for each alpha combination
-    for i, alpha_O in enumerate(alpha_values):
-        for j, alpha_R in enumerate(alpha_values):
-            params_alpha = ModelParams(scenario)
-            params_alpha.alpha_O = alpha_O
-            params_alpha.alpha_R = alpha_R
-            
-            result = calculate_game_step(params_alpha)
-            
-            strategy_matrix_O[i, j] = result['strategy_O']
-            strategy_matrix_R[i, j] = result['strategy_R']
-            impact_matrix[i, j] = result['observed_total_impact']
-    
-    # Convert strategies to numeric codes for visualization
-    strategy_to_num = {s: i for i, s in enumerate(strategies)}
-    numeric_matrix_O = np.zeros((len(alpha_values), len(alpha_values)))
-    numeric_matrix_R = np.zeros((len(alpha_values), len(alpha_values)))
-    
-    for i in range(len(alpha_values)):
-        for j in range(len(alpha_values)):
-            numeric_matrix_O[i, j] = strategy_to_num[strategy_matrix_O[i, j]]
-            numeric_matrix_R[i, j] = strategy_to_num[strategy_matrix_R[i, j]]
-    
-    # Panel A: Organization strategy heatmap
-    ax1 = plt.subplot(gs[0, 0])
-    im1 = ax1.imshow(numeric_matrix_O, cmap='viridis', origin='lower')
-    ax1.set_title(f'A: Organization Optimal Strategy - {scenario_name}')
-    ax1.set_xlabel('Researcher alpha (α_R)')
-    ax1.set_ylabel('Organization alpha (α_O)')
-    ax1.set_xticks(np.arange(len(alpha_values)))
-    ax1.set_yticks(np.arange(len(alpha_values)))
-    ax1.set_xticklabels([f"{alpha:.1f}" for alpha in alpha_values])
-    ax1.set_yticklabels([f"{alpha:.1f}" for alpha in alpha_values])
-    
-    # Add strategy labels with white text
-    for i in range(len(alpha_values)):
-        for j in range(len(alpha_values)):
-            ax1.text(j, i, f"{strategy_matrix_O[i, j][0]},{strategy_matrix_O[i, j][1]}", 
-                    ha="center", va="center", color="w",
-                    fontsize=8)
-    
-    plt.colorbar(im1, ax=ax1)
-    
-    # Panel B: Researcher strategy heatmap
-    ax2 = plt.subplot(gs[0, 1])
-    im2 = ax2.imshow(numeric_matrix_R, cmap='viridis', origin='lower')
-    ax2.set_title(f'B: Researcher Optimal Strategy - {scenario_name}')
-    ax2.set_xlabel('Researcher alpha (α_R)')
-    ax2.set_ylabel('Organization alpha (α_O)')
-    ax2.set_xticks(np.arange(len(alpha_values)))
-    ax2.set_yticks(np.arange(len(alpha_values)))
-    ax2.set_xticklabels([f"{alpha:.1f}" for alpha in alpha_values])
-    ax2.set_yticklabels([f"{alpha:.1f}" for alpha in alpha_values])
-    
-    # Add strategy labels with white text
-    for i in range(len(alpha_values)):
-        for j in range(len(alpha_values)):
-            ax2.text(j, i, f"{strategy_matrix_R[i, j][0]},{strategy_matrix_R[i, j][1]}", 
-                    ha="center", va="center", color="w",
-                    fontsize=8)
-    
-    plt.colorbar(im2, ax=ax2)
-    
-    # Panel C: Exigence dynamics for different beta (learning rate) values
-    ax3 = plt.subplot(gs[1, 0])
-    
-    beta_values = [0.1, 0.3, 0.5, 0.7, 0.9]
-    colors = ['b', 'g', 'r', 'c', 'm']
-    
-    for beta, color in zip(beta_values, colors):
-        params_beta = ModelParams(scenario)
-        params_beta.beta = beta
-        
-        df_beta = simulate_multi_step(params_beta, steps=20)
-        
-        ax3.plot(df_beta['step'], df_beta['X_t'], f"{color}o-", 
-                label=f"β = {beta}")
-    
-    ax3.set_title(f'C: Exigence Dynamics for Different Learning Rates - {scenario_name}')
-    ax3.set_xlabel('Time Steps')
-    ax3.set_ylabel('Exigence')
-    ax3.set_ylim(0, 1)
-    ax3.legend()
-    ax3.grid(True, linestyle='--', alpha=0.7)
-    
     # Panel D: Impact distribution for different alpha values
     ax4 = plt.subplot(gs[1, 1])
     
@@ -1127,47 +1246,43 @@ def create_strategic_aspects(scenario='gen_ai', save_pdf=True):
     ax4.legend()
     ax4.grid(True, linestyle='--', alpha=0.7)
     
-    plt.tight_layout()
-    
     # Save as PDF
     if save_pdf:
-        scenario_abbr = 'AI' if scenario == 'gen_ai' else 'CS'
-        plt.savefig(f'simulations/figure3_{scenario_abbr}_strategic_aspects.pdf', format='pdf', bbox_inches='tight')
-        print(f"Saved {scenario_name} strategic aspects as 'simulations/figure3_{scenario_abbr}_strategic_aspects.pdf'")
+        plt.savefig(f'simulations/figure_detailed_{scenario_abbr}_analysis.pdf', format='pdf')
+        print(f"Saved detailed {scenario_name} analysis as 'simulations/figure_detailed_{scenario_abbr}_analysis.pdf'")
     
     return fig
 
-# Main function to create all visualizations
+# Updated function to create all visualizations
 def create_all_visualizations(save_pdf=True):
     """
-    Create all the visualizations for the paper
+    Create all the reorganized visualizations for the paper
     """
-    print("Generating all visualizations for the paper...")
+    print("Generating reorganized visualizations for the paper...")
     
     # Create Figure 1: Comparison of the two scenarios
     fig1 = create_scenarios_comparison(save_pdf=save_pdf)
     
-    # Create Figure 2a: Model development and equilibrium analysis - Generative AI
-    fig2a = create_model_evolution_equilibrium(scenario='gen_ai', save_pdf=save_pdf)
+    # Create Figure 2: Parameter comparison between both scenarios
+    fig2 = create_parameter_comparison(save_pdf=save_pdf)
     
-    # Create Figure 2b: Model development and equilibrium analysis - Citizen Science
-    fig2b = create_model_evolution_equilibrium(scenario='citizen_science', save_pdf=save_pdf)
+    # Create Figure 3: Exigence dynamics comparison
+    fig3 = create_exigence_dynamics_comparison(save_pdf=save_pdf)
     
-    # Create Figure 3a: Strategic aspects - Generative AI
-    fig3a = create_strategic_aspects(scenario='gen_ai', save_pdf=save_pdf)
-    
-    # Create Figure 3b: Strategic aspects - Citizen Science
-    fig3b = create_strategic_aspects(scenario='citizen_science', save_pdf=save_pdf)
+    # Create detailed scenario analyses
+    fig_ai = create_detailed_scenario_analysis(scenario='gen_ai', save_pdf=save_pdf)
+    fig_cs = create_detailed_scenario_analysis(scenario='citizen_science', save_pdf=save_pdf)
     
     print("All visualizations complete. PDF files saved in the 'simulations/' directory")
     
     return {
-        'fig1': fig1,
-        'fig2a': fig2a,
-        'fig2b': fig2b,
-        'fig3a': fig3a,
-        'fig3b': fig3b
+        'fig1': fig1, 
+        'fig2': fig2,
+        'fig3': fig3,
+        'fig_ai': fig_ai,
+        'fig_cs': fig_cs
     }
+
 
 # Run directly to create all visualizations
 if __name__ == "__main__":
